@@ -48,7 +48,6 @@ if only_available:
     filtered_bikes = filtered_bikes[(~filtered_bikes["is_disabled"]) & (~filtered_bikes["is_reserved"])]
 
 ebikes_ready = filtered_bikes[(filtered_bikes["vehicle_type_id"] == "ebike") & (filtered_bikes["zasieg_km"] >= min_range)]
-standard_ready = filtered_bikes[filtered_bikes["vehicle_type_id"] == "bike"]
 
 # --- KARTY KPI ---
 col1, col2, col3, col4 = st.columns(4)
@@ -64,7 +63,7 @@ left, right = st.columns([1.3, 1])
 
 with left:
     st.subheader("🗺️ Mapa dostępności na stacjach")
-    fig_map = px.scatter_mapbox(
+    fig_map = px.scatter_map(
         stations_df,
         lat="lat",
         lon="lon",
@@ -77,7 +76,7 @@ with left:
         height=480,
         labels={"num_bikes_available": "Dostępne rowery", "capacity": "Pojemność", "oblozenie_pct": "Obłożenie (%)"}
     )
-    fig_map.update_layout(mapbox_style="carto-positron", margin={"r": 0, "t": 0, "l": 0, "b": 0})
+    fig_map.update_layout(map_style="carto-positron", margin={"r": 0, "t": 0, "l": 0, "b": 0})
     st.plotly_chart(fig_map, use_container_width=True)
 
 with right:
