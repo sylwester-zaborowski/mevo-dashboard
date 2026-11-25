@@ -67,26 +67,30 @@ def load_and_model_data():
         0
     )
 
-    # Wyciągnięcie miasta z nazwy/adresu stacji (np. GDA, GDY, SOP)
-    def extract_city(name):
-        prefix = str(name).split("-")[0].strip().upper()
-        mapping = {
-            "GDA": "Gdańsk", "GDY": "Gdynia", "SOP": "Sopot",
-            "RUM": "Rumia", "RED": "Reda", "WEJ": "Wejherowo",
-            "PRU": "Pruszcz Gdański", "TCZ": "Tczew", "PUK": "Puck",
-            "WLA": "Władysławowo", "ZUK": "Żukowo", "KOL": "Kolbudy",
-            "STE": "Stężyca", "SOM": "Somonino", "KOS": "Kościerzyna", "SIE": "Sierakowice"
-        }
-        return mapping.get(prefix, "Inne / Metropolia")
+    # Niezawodne przypisanie gminy na podstawie współrzędnych geograficznych (GPS)
+    def classify_city_by_gps(row):
+        lat, lon = row["lat"], row["lon"]
+        if 54.27 <= lat <= 54.425 and 18.45 <= lon <= 18.95:
+            return "Gdańsk"
+        elif 54.425 < lat <= 54.475 and 18.50 <= lon <= 18.60:
+            return "Sopot"
+        elif 54.46 <= lat <= 54.58 and 18.38 <= lon <= 18.58:
+            return "Gdynia"
+        elif lat < 54.27 and lon > 18.55:
+            return "Pruszcz Gdański / Tczew"
+        elif lat > 54.55 and lon <= 18.45:
+            return "Małe Trójmiasto (Rumia/Reda/Wejherowo)"
+        else:
+            return "Kaszuby / Pozostałe Gminy"
 
-    stations["Miasto"] = stations["name"].apply(extract_city)
+    stations["Miasto"] = stations.apply(classify_city_by_gps, axis=1)
 
     # Segmentacja klientów na podstawie charakterystyki lokalizacji stacji
     def classify_customer_segment(name):
         n = str(name).lower()
-        if any(k in n for k in ["skm", "pkm", "dworzec", "główny", "wrzeszcz", "oliwa", "politechnika", "uniwersytet", "alchemia", "olivia"]):
+        if any(k in n for k in ["skm", "pkm", "dworzec", "główny", "wrzeszcz", "oliwa", "politechnika", "uniwersytet", "alchemia", "olivia", "stocznia", "centrum"]):
             return "Commuter (Dojazdy Praca/Uczelnia)"
-        elif any(k in n for k in ["plaża", "molo", "brzeźno", "jelitkowo", "orłowo", "bulwar", "park", "stogi", "sobieszewo", "nadmorski"]):
+        elif any(k in n for k in ["plaża", "molo", "brzeźno", "jelitkowo", "orłowo", "bulwar", "park", "stogi", "sobieszewo", "nadmorski", "aleja", "promenada"]):
             return "Leisure (Rekreacja & Turystyka)"
         else:
             return "Residential (Ruch Lokalny / Dzielnice)"
@@ -117,21 +121,25 @@ def load_and_model_data():
 stations_df, bikes_df, updated_at = load_and_model_data()
 
 # --- OBLICZENIA BIZNESOWE (FLEET & REVENUE MODEL) ---
-total_fleet_declared = 4099  # Pełna skala floty MEVO w metropolii
+total_fleet_declared = 4099
 bikes_parked_free = len(bikes_df[(~bikes_df["is_disabled"]) & (~bikes_df["is_reserved"])])
 bikes_disabled = len(bikes_df[bikes_df["is_disabled"] == True])
 bikes_reserved = len(bikes_df[bikes_df["is_reserved"] == True])
-# Szacunek rowerów aktualnie wypożyczonych (w trasie)
 bikes_in_use = max(total_fleet_declared - len(bikes_df), 0)
 
 # --- PANEL BOCZNY (PARAMETRY MODELU FINANSOWEGO I ROWEROWEGO) ---
 st.sidebar.title("🎛️ Centrum Sterowania BI")
 st.sidebar.caption("Parametry symulacji budżetowej i operacyjnej:")
 
+available_cities = sorted(stations_df["Miasto"].unique())
+preferred_defaults = [c for c in ["Gdańsk", "Gdynia", "Sopot"] if c in available_cities]
+if not preferred_defaults:
+    preferred_defaults = available_cities
+
 selected_cities = st.sidebar.multiselect(
-    "Filtruj gminy (Obszar Metropolitalny):",
-    options=sorted(stations_df["Miasto"].unique()),
-    default=["Gdańsk", "Gdynia", "Sopot"]
+    "Filtruj obszar (Obszar Metropolitalny):",
+    options=available_cities,
+    default=preferred_defaults
 )
 
 st.sidebar.divider()
@@ -246,12 +254,12 @@ with tab1:
         st.plotly_chart(fig_waterfall, use_container_width=True)
 
     with c2:
-        st.subheader("🏙️ Potencjał Podaży wg Gmin (Pojemność vs Dostępność)")
+        st.subheader("🏙️ Potencjał Podaży wg Obszaru (Pojemność vs Dostępność)")
         city_agg = stations_df.groupby("Miasto", as_index=False).agg(
             Dostepne=("num_bikes_available", "sum"),
             Pojemnosc=("capacity", "sum"),
             Liczba_Stacji=("station_id", "count")
-        ).sort_values("Pojemnosc", ascending=True).tail(8)
+        ).sort_values("Pojemnosc", ascending=True)
 
         fig_city = go.Figure()
         fig_city.add_trace(go.Bar(
@@ -283,7 +291,7 @@ with tab2:
     s1, s2 = st.columns([1, 1.3])
 
     with s1:
-        st.subheader("🎯 Struktura Bazy Lokalizacji wg Segmentu Klienta")
+        st.subheader("🎯 Struktura Zasobów wg Segmentu Klienta")
         seg_df = filtered_stations.groupby("Segment_Klienta", as_index=False).agg(
             Liczba_Stacji=("station_id", "count"),
             Dostepne_Rowery=("num_bikes_available", "sum"),
@@ -397,7 +405,6 @@ with tab3:
         st.subheader(f"🔋 Gotowość Floty E-Bike na Trasę ≥ {min_range} km")
         ebikes_avail = bikes_df[(bikes_df["vehicle_type_id"] == "ebike") & (~bikes_df["is_disabled"])].copy()
         ready_count = len(ebikes_avail[ebikes_avail["zasieg_km"] >= min_range])
-        low_count = len(ebikes_avail) - ready_count
 
         fig_bat = px.histogram(
             ebikes_avail,
