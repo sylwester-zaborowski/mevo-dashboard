@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 from google import genai
 import numpy as np
@@ -9,50 +9,50 @@ import requests
 import streamlit as st
 
 st.set_page_config(
-    page_title="MEVO Trójmiasto – Analiza Dostępności i Agent AI",
+    page_title="MEVO Trójmiasto – Dostępność Rowerów i Agent AI",
     page_icon="🚲",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Granatowy motyw BI
+# Jasny, stonowany motyw z profesjonalnym granatem (#0F2537)
 st.markdown(
     """
     <style>
         .stApp {
-            background-color: #0B132B;
-            color: #F1F5F9;
+            background-color: #F6F8FB;
+            color: #0F2537;
         }
         section[data-testid="stSidebar"] {
-            background-color: #111D3A;
-            border-right: 1px solid #26385E;
+            background-color: #FFFFFF;
+            border-right: 1px solid #E2E8F0;
         }
         div[data-testid="stMetric"] {
-            background-color: #1C2541;
-            border: 1px solid #3A506B;
+            background-color: #FFFFFF;
+            border: 1px solid #E2E8F0;
             padding: 16px 20px;
             border-radius: 12px;
         }
         div[data-testid="stMetric"] label {
-            color: #94A3B8 !important;
+            color: #475569 !important;
             font-size: 0.82rem !important;
             font-weight: 600 !important;
         }
         div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-            color: #F8FAFC !important;
+            color: #0F2537 !important;
             font-size: 1.75rem !important;
             font-weight: 700 !important;
         }
-        .summary-card {
-            background-color: #1C2541;
-            border-left: 4px solid #38BDF8;
-            border-top: 1px solid #26385E;
-            border-right: 1px solid #26385E;
-            border-bottom: 1px solid #26385E;
+        .lead-box {
+            background-color: #FFFFFF;
+            border-left: 4px solid #0F2537;
+            border-top: 1px solid #E2E8F0;
+            border-right: 1px solid #E2E8F0;
+            border-bottom: 1px solid #E2E8F0;
             padding: 14px 18px;
             border-radius: 0 10px 10px 0;
             margin-bottom: 16px;
-            color: #E2E8F0;
+            color: #1E293B;
             font-size: 0.95rem;
         }
     </style>
@@ -60,11 +60,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-NAVY_SEQ = ["#38BDF8", "#2DD4BF", "#60A5FA", "#FBBF24", "#FB7185"]
-STATUS_COLORS = {
-    "Dużo rowerów (≥80%)": "#38BDF8",
-    "Dostępne (1–79%)": "#2DD4BF",
-    "Brak rowerów (0 szt.)": "#FB7185",
+NAVY = "#0F2537"
+SLATE_BLUE = "#3B6E8C"
+TEAL_MUTED = "#2B7A78"
+SAND = "#D9822B"
+CORAL_MUTED = "#C84B31"
+LIGHT_GRID = "#E2E8F0"
+
+PALETTE = [NAVY, SLATE_BLUE, TEAL_MUTED, SAND, CORAL_MUTED]
+STATUS_MAP = {
+    "Dostępne (1–79%)": TEAL_MUTED,
+    "Dużo rowerów (≥80%)": NAVY,
+    "Brak rowerów (0 szt.)": CORAL_MUTED,
 }
 
 
@@ -88,10 +95,10 @@ def assign_zone_type(name: str) -> str:
     commuter_keys = ["skm", "pkm", "dworzec", "główny", "wrzeszcz", "oliwa", "politechnika", "uniwersytet", "alchemia", "olivia", "centrum"]
     leisure_keys = ["plaża", "molo", "brzeźno", "jelitkowo", "orłowo", "bulwar", "park", "stogi", "sobieszewo", "nadmorski", "aleja"]
     if any(k in label for k in commuter_keys):
-        return "Węzły przesiadkowe i uczelnie"
+        return "Węzły i uczelnie"
     if any(k in label for k in leisure_keys):
-        return "Strefa nadmorska i rekreacja"
-    return "Dzielnice mieszkaniowe"
+        return "Wybrzeże i rekreacja"
+    return "Osiedla / lokalne"
 
 
 def assign_availability_status(row: pd.Series) -> str:
@@ -104,50 +111,52 @@ def assign_availability_status(row: pd.Series) -> str:
 
 def assign_battery_bucket(km: float) -> str:
     if km < 20:
-        return "1. Krótka trasa (< 20 km)"
+        return "Do 20 km"
     if km < 50:
-        return "2. Średni dystans (20–50 km)"
-    return "3. Długa wycieczka (> 50 km)"
+        return "20–50 km"
+    return "Powyżej 50 km"
 
 
-def apply_navy_theme(fig: go.Figure, height: int = 420) -> go.Figure:
+def style_chart(fig: go.Figure, height: int = 390) -> go.Figure:
     fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#1C2541",
-        plot_bgcolor="#131C31",
-        font={"color": "#E2E8F0"},
+        template="plotly_white",
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
+        font={"color": NAVY, "family": "sans-serif"},
         height=height,
-        margin={"t": 24, "b": 24, "l": 12, "r": 12},
+        margin={"t": 20, "b": 24, "l": 12, "r": 12},
     )
+    fig.update_xaxes(showgrid=True, gridcolor=LIGHT_GRID, zeroline=False)
+    fig.update_yaxes(showgrid=True, gridcolor=LIGHT_GRID, zeroline=False)
     return fig
 
 
-def build_fallback_summary(
+def build_fallback_answer(
     stations: pd.DataFrame,
     filtered: pd.DataFrame,
     ebikes: pd.DataFrame,
     avg_ebike_km: str,
     timestamp: str,
-    error_detail: Exception | None = None,
+    err: Exception | None = None,
 ) -> str:
     best_city = stations.groupby("Miasto")["num_bikes_available"].sum().idxmax()
     best_city_cnt = int(stations.groupby("Miasto")["num_bikes_available"].sum().max())
-    top3_names = ", ".join(filtered.sort_values("num_bikes_available", ascending=False).head(3)["name"].tolist())
-    long_range_ebikes = int((ebikes["zasieg_km"] >= 50).sum()) if len(ebikes) > 0 else 0
+    top3 = ", ".join(filtered.sort_values("num_bikes_available", ascending=False).head(3)["name"].tolist())
+    long_range = int((ebikes["zasieg_km"] >= 50).sum()) if len(ebikes) > 0 else 0
 
-    base = f"""🤖 **Podsumowanie Agenta (stan na {timestamp}):**
-
-* **Najwięcej rowerów:** Liderem dostępności na stacjach jest obecnie **{best_city}** ({best_city_cnt} szt.).
-* **TOP 3 stacje na start:** {top3_names}.
-* **Baterie e-bike:** Dostępnych jest **{long_range_ebikes}** rowerów elektrycznych z zasięgiem powyżej 50 km (średni zasięg: **{avg_ebike_km}**)."""
-
-    if error_detail is not None:
-        return f"{base}\n\n*(Tryb zapasowy z powodu chwilowego błędu API: {error_detail})*"
-    return f"{base}\n\n*(Dodaj `GEMINI_API_KEY` w zakładce Secrets na Streamlit Cloud, aby odblokować swobodne pytania do modelu).* "
+    msg = (
+        f"**Podsumowanie z danych na żywo ({timestamp}):**\n\n"
+        f"- Najwięcej rowerów na stacjach jest obecnie w obszarze **{best_city}** ({best_city_cnt} szt.).\n"
+        f"- Najlepsze stacje pod względem liczby rowerów w wybranym filtrze: **{top3}**.\n"
+        f"- E-bike'i z zasięgiem ≥ 50 km: **{long_range}** szt. (średni zasięg: **{avg_ebike_km}**)."
+    )
+    if err is not None:
+        msg += f"\n\n*(Użyto podsumowania lokalnego — chwilowy błąd API: {err})*"
+    return msg
 
 
 @st.cache_data(ttl=60)
-def load_mevo_data() -> tuple[pd.DataFrame, pd.DataFrame, str]:
+def load_mevo_data() -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     gbfs_index = requests.get("https://gbfs.urbansharing.com/rowermevo.pl/gbfs.json", timeout=10).json()
     feeds = {f["name"]: f["url"] for f in gbfs_index["data"]["pl"]["feeds"]}
 
@@ -165,81 +174,87 @@ def load_mevo_data() -> tuple[pd.DataFrame, pd.DataFrame, str]:
     stations["Typ_Lokalizacji"] = stations["name"].apply(assign_zone_type)
     stations["Status"] = stations.apply(assign_availability_status, axis=1)
 
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if "last_reported" in stations.columns:
+        stations["opoznienie_min"] = ((now_ts - stations["last_reported"]) / 60).clip(lower=0).round(1)
+    else:
+        stations["opoznienie_min"] = np.nan
+
     bikes = free_bikes[
         free_bikes["lat"].between(53.8, 55.0) & free_bikes["lon"].between(17.5, 19.5)
     ].copy()
     bikes["zasieg_km"] = (bikes["current_range_meters"] / 1000).fillna(0).round(1) if "current_range_meters" in bikes.columns else 0.0
+    bikes["Typ"] = bikes["vehicle_type_id"].map({"ebike": "E-bike", "bike": "Klasyczny"}).fillna("Inny") if "vehicle_type_id" in bikes.columns else "Inny"
 
-    return stations, bikes, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    meta = {
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "feeds_count": len(feeds),
+        "raw_bikes_count": len(free_bikes),
+        "gps_outliers_removed": int(len(free_bikes) - len(bikes)),
+        "free_floating_count": int(len(bikes)),
+    }
+    return stations, bikes, meta
 
 
-stations_df, bikes_df, updated_at = load_mevo_data()
+stations_df, bikes_df, meta = load_mevo_data()
 
 # Panel boczny
-st.sidebar.title("🎛️ Filtry analizy")
-available_cities = sorted(stations_df["Miasto"].unique())
-default_cities = [c for c in ["Gdańsk", "Gdynia", "Sopot"] if c in available_cities] or available_cities
-selected_cities = st.sidebar.multiselect("Wybierz miasta / obszar:", options=available_cities, default=default_cities)
+st.sidebar.markdown("### Filtry")
+cities = sorted(stations_df["Miasto"].unique())
+default_cities = [c for c in ["Gdańsk", "Gdynia", "Sopot"] if c in cities] or cities
+selected_cities = st.sidebar.multiselect("Obszar / gminy:", options=cities, default=default_cities)
 
-st.sidebar.divider()
-st.sidebar.subheader("🚴‍♂️ Filtr dla rowerzysty")
-min_range = st.sidebar.slider("Jaki dystans chcesz przejechać (km)?", 5, 100, 30, step=5)
-only_working = st.sidebar.checkbox("Pokaż tylko sprawne rowery", value=True)
+st.sidebar.markdown("### Rower elektryczny")
+min_km = st.sidebar.slider("Minimalny zasięg trasy (km):", 5, 100, 30, step=5)
+only_ready = st.sidebar.checkbox("Tylko rowery gotowe do jazdy", value=True)
 
 filtered_stations = stations_df[stations_df["Miasto"].isin(selected_cities)].copy() if selected_cities else stations_df.copy()
 
 filtered_bikes = bikes_df.copy()
-if only_working and {"is_disabled", "is_reserved"}.issubset(filtered_bikes.columns):
+if only_ready and {"is_disabled", "is_reserved"}.issubset(filtered_bikes.columns):
     filtered_bikes = filtered_bikes[(~filtered_bikes["is_disabled"]) & (~filtered_bikes["is_reserved"])]
 
 ebikes = filtered_bikes[filtered_bikes["vehicle_type_id"] == "ebike"].copy() if "vehicle_type_id" in filtered_bikes.columns else pd.DataFrame(columns=["zasieg_km"])
-ebikes_ready = ebikes[ebikes["zasieg_km"] >= min_range]
+ebikes_ready = ebikes[ebikes["zasieg_km"] >= min_km]
 
-# Nagłówek i KPI
-st.title("🚲 MEVO Trójmiasto – Analiza Dostępności & Agent AI")
-st.markdown(
-    f"Analiza dostępności rowerów miejskich, obłożenia stacji, baterii oraz asystent AI oparty na otwartych danych MEVO. "
-    f"• *Aktualizacja:* `{updated_at}`"
-)
+# Nagłówek i 4 główne KPI
+st.markdown(f"## MEVO Trójmiasto — Dostępność i Stan Floty")
+st.caption(f"Otwarte dane GBFS ({meta['feeds_count']} źródeł) • Odświeżono: {meta['updated_at']}")
 
-total_bikes_on_stations = int(filtered_stations["num_bikes_available"].sum())
-total_capacity = int(filtered_stations["capacity"].sum())
-avg_fill = round((total_bikes_on_stations / total_capacity * 100), 1) if total_capacity > 0 else 0.0
-stations_with_bikes = int((filtered_stations["num_bikes_available"] > 0).sum())
+total_bikes = int(filtered_stations["num_bikes_available"].sum())
+total_docks = int(filtered_stations["num_docks_available"].sum()) if "num_docks_available" in filtered_stations.columns else int(filtered_stations["capacity"].sum() - total_bikes)
+total_cap = int(filtered_stations["capacity"].sum())
+fill_pct = round((total_bikes / total_cap * 100), 1) if total_cap > 0 else 0.0
+active_stations = int((filtered_stations["num_bikes_available"] > 0).sum())
 empty_stations = int((filtered_stations["num_bikes_available"] == 0).sum())
-avg_ebike_km = f"{ebikes['zasieg_km'].mean():.1f} km" if len(ebikes) > 0 else "0.0 km"
+avg_km_str = f"{ebikes['zasieg_km'].mean():.1f} km" if len(ebikes) > 0 else "0.0 km"
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Rowery na stacjach", f"{total_bikes_on_stations:,}".replace(",", " "), f"z {total_capacity:,} miejsc postojowych".replace(",", " "))
-c2.metric("Stacje z dostępnym rowerem", f"{stations_with_bikes} z {len(filtered_stations)}", f"{empty_stations} stacji pustych", delta_color="inverse")
-c3.metric("Średnie wypełnienie stacji", f"{avg_fill}%", "udział zajętych stojaków")
-c4.metric(f"E-bike'i gotowe na ≥ {min_range} km", f"{len(ebikes_ready):,}".replace(",", " "), f"średni zasięg: {avg_ebike_km}")
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("Dostępne rowery (stacje)", f"{total_bikes:,}".replace(",", " "), f"Wolnych miejsc: {total_docks:,}".replace(",", " "))
+k2.metric("Stacje z rowerami", f"{active_stations} / {len(filtered_stations)}", f"Pustych: {empty_stations}", delta_color="inverse")
+k3.metric("Średnie wypełnienie", f"{fill_pct}%", f"Pojemność: {total_cap:,}".replace(",", " "))
+k4.metric(f"E-bike ≥ {min_km} km", f"{len(ebikes_ready):,}".replace(",", " "), f"Śr. zasięg: {avg_km_str}")
 
 st.write("")
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 Dostępność i TOP Stacje",
-    "📍 Rozkład w Trójmieście",
-    "🔋 Bateria i Zasięg",
-    "🤖 Asystent AI (Agent Danych)",
-])
+tab1, tab2, tab3 = st.tabs(["Dostępność i Stacje", "Flota i Baterie", "Asystent AI"])
 
+# --- ZAKŁADKA 1: DOSTĘPNOŚĆ I STACJE ---
 with tab1:
     if len(filtered_stations) > 0:
-        best_station = filtered_stations.sort_values("num_bikes_available", ascending=False).iloc[0]
+        top_st = filtered_stations.sort_values("num_bikes_available", ascending=False).iloc[0]
+        median_lag = filtered_stations["opoznienie_min"].median()
+        lag_txt = f" • Mediana opóźnienia sygnału stacji: {median_lag:.1f} min" if pd.notna(median_lag) else ""
         st.markdown(
-            f"""<div class="summary-card">
-            <b>Wnioski z bieżących danych:</b> W wybranym obszarze dostępnych jest <b>{total_bikes_on_stations}</b> rowerów na <b>{stations_with_bikes}</b> stacjach.
-            Najwięcej rowerów stoi na stacji <b>{best_station['name']}</b> ({int(best_station['num_bikes_available'])} szt.).
-            Na <b>{empty_stations}</b> stacjach nie ma obecnie żadnego wolnego roweru.
-            </div>""",
+            f"<div class='lead-box'>Najwięcej rowerów stoi obecnie na stacji <b>{top_st['name']}</b> "
+            f"({int(top_st['num_bikes_available'])} szt.). W wybranym obszarze <b>{empty_stations}</b> stacji ma 0 rowerów{lag_txt}.</div>",
             unsafe_allow_html=True,
         )
 
-    col_left, col_right = st.columns([1.2, 1])
+    c_left, c_right = st.columns([1.2, 1])
 
-    with col_left:
-        st.subheader("🏆 TOP 10 stacji pod względem liczby rowerów")
+    with c_left:
+        st.markdown("#### TOP 10 stacji — liczba dostępnych rowerów")
         top10 = filtered_stations.sort_values("num_bikes_available", ascending=False).head(10)
         fig_top = px.bar(
             top10.iloc[::-1],
@@ -247,86 +262,34 @@ with tab1:
             y="name",
             orientation="h",
             text="num_bikes_available",
-            color="wypelnienie_pct",
-            color_continuous_scale=["#1D4ED8", "#38BDF8", "#2DD4BF"],
-            labels={"num_bikes_available": "Liczba dostępnych rowerów", "name": "", "wypelnienie_pct": "Wypełnienie (%)"},
+            color_discrete_sequence=[NAVY],
+            labels={"num_bikes_available": "Dostępne rowery", "name": ""},
         )
-        fig_top.update_traces(textposition="outside")
-        apply_navy_theme(fig_top, height=430)
-        fig_top.update_layout(coloraxis_showscale=False)
+        fig_top.update_traces(textposition="outside", marker_color=NAVY)
+        style_chart(fig_top, height=380)
         st.plotly_chart(fig_top, use_container_width=True)
 
-    with col_right:
-        st.subheader("🏙️ Porównanie miast (Rowery vs Wolne miejsca)")
-        city_summary = (
+    with c_right:
+        st.markdown("#### Rowery vs wolne miejsca na oddanie (wg obszaru)")
+        city_df = (
             stations_df.groupby("Miasto", as_index=False)
-            .agg(Dostepne=("num_bikes_available", "sum"), Wolne_Miejsca=("num_docks_available", "sum"))
-            .sort_values("Dostepne", ascending=True)
-        )
-        fig_cities = go.Figure()
-        fig_cities.add_trace(
-            go.Bar(
-                y=city_summary["Miasto"],
-                x=city_summary["Dostepne"],
-                name="Dostępne rowery",
-                orientation="h",
-                marker_color="#38BDF8",
-                text=city_summary["Dostepne"],
-                textposition="auto",
+            .agg(
+                Rowery=("num_bikes_available", "sum"),
+                Wolne_miejsca=("num_docks_available", "sum") if "num_docks_available" in stations_df.columns else ("capacity", lambda s: 0),
             )
+            .sort_values("Rowery", ascending=True)
         )
-        fig_cities.add_trace(
-            go.Bar(
-                y=city_summary["Miasto"],
-                x=city_summary["Wolne_Miejsca"],
-                name="Wolne stojaki",
-                orientation="h",
-                marker_color="#2B3A5E",
-            )
-        )
-        apply_navy_theme(fig_cities, height=430)
-        fig_cities.update_layout(
-            barmode="stack",
-            legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
-        )
-        st.plotly_chart(fig_cities, use_container_width=True)
+        fig_city = go.Figure()
+        fig_city.add_trace(go.Bar(y=city_df["Miasto"], x=city_df["Rowery"], name="Dostępne rowery", orientation="h", marker_color=NAVY))
+        fig_city.add_trace(go.Bar(y=city_df["Miasto"], x=city_df["Wolne_miejsca"], name="Wolne miejsca", orientation="h", marker_color="#CBD5E1"))
+        style_chart(fig_city, height=380)
+        fig_city.update_layout(barmode="stack", legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1})
+        st.plotly_chart(fig_city, use_container_width=True)
 
-    st.subheader("📋 Przegląd stacji")
-    view_option = st.radio(
-        "Pokaż stacje:",
-        ["Najwięcej dostępnych rowerów", "Puste stacje (0 rowerów)", "Wszystkie stacje (wyszukiwarka)"],
-        horizontal=True,
-    )
+    g_left, g_right = st.columns([1.3, 1])
 
-    if view_option == "Najwięcej dostępnych rowerów":
-        display_df = filtered_stations.sort_values("num_bikes_available", ascending=False).head(15)
-    elif view_option == "Puste stacje (0 rowerów)":
-        display_df = filtered_stations[filtered_stations["num_bikes_available"] == 0].sort_values("capacity", ascending=False)
-    else:
-        search_txt = st.text_input("Wpisz nazwę ulicy lub przystanku (np. Wrzeszcz, Oliwa, Molo):")
-        display_df = filtered_stations.sort_values("num_bikes_available", ascending=False)
-        if search_txt:
-            display_df = display_df[display_df["name"].str.contains(search_txt, case=False, na=False)]
-
-    st.dataframe(
-        display_df[["name", "Miasto", "Typ_Lokalizacji", "num_bikes_available", "capacity", "wypelnienie_pct", "Status"]].rename(
-            columns={
-                "name": "Stacja",
-                "Typ_Lokalizacji": "Typ okolicy",
-                "num_bikes_available": "Dostępne rowery",
-                "capacity": "Wszystkie stojaki",
-                "wypelnienie_pct": "Wypełnienie (%)",
-            }
-        ),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-with tab2:
-    g1, g2 = st.columns([1.3, 1])
-
-    with g1:
-        st.subheader("📍 Rozkład przestrzenny stacji w Metropolii")
+    with g_left:
+        st.markdown("#### Rozmieszczenie stacji (współrzędne GPS)")
         fig_geo = px.scatter(
             filtered_stations,
             x="lon",
@@ -335,166 +298,192 @@ with tab2:
             color="Status",
             hover_name="name",
             hover_data={"Miasto": True, "num_bikes_available": True, "capacity": True, "lon": False, "lat": False},
-            color_discrete_map=STATUS_COLORS,
-            labels={"lon": "Długość geograficzna", "lat": "Szerokość geograficzna"},
+            color_discrete_map=STATUS_MAP,
+            labels={"lon": "", "lat": ""},
         )
-        apply_navy_theme(fig_geo, height=460)
+        style_chart(fig_geo, height=400)
         fig_geo.update_layout(
-            xaxis={"showgrid": True, "gridcolor": "#26385E", "showticklabels": False, "title": "Zachód ← → Wschód"},
-            yaxis={"showgrid": True, "gridcolor": "#26385E", "showticklabels": False, "title": "Południe ← → Północ", "scaleanchor": "x", "scaleratio": 1.6},
+            xaxis={"showticklabels": False},
+            yaxis={"showticklabels": False, "scaleanchor": "x", "scaleratio": 1.6},
             legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
         )
         st.plotly_chart(fig_geo, use_container_width=True)
 
-    with g2:
-        st.subheader("🏘️ Dostępność wg typu okolicy")
-        zone_agg = (
+    with g_right:
+        st.markdown("#### Podział rowerów wg charakteru okolicy")
+        zone_df = (
             filtered_stations.groupby("Typ_Lokalizacji", as_index=False)
-            .agg(Rowery=("num_bikes_available", "sum"), Stacje=("station_id", "count"), Srednio_na_stacje=("num_bikes_available", "mean"))
+            .agg(Rowery=("num_bikes_available", "sum"), Stacje=("station_id", "count"))
         )
-        zone_agg["Srednio_na_stacje"] = zone_agg["Srednio_na_stacje"].round(1)
-
-        fig_zone = px.pie(
-            zone_agg,
-            values="Rowery",
-            names="Typ_Lokalizacji",
-            hole=0.55,
-            color_discrete_sequence=NAVY_SEQ,
-        )
+        fig_zone = px.pie(zone_df, values="Rowery", names="Typ_Lokalizacji", hole=0.55, color_discrete_sequence=[NAVY, TEAL_MUTED, SAND])
         fig_zone.update_traces(textposition="inside", textinfo="percent+label")
-        apply_navy_theme(fig_zone, height=290)
-        fig_zone.update_layout(showlegend=False)
+        style_chart(fig_zone, height=250)
+        fig_zone.update_layout(showlegend=False, margin={"t": 8, "b": 8, "l": 8, "r": 8})
         st.plotly_chart(fig_zone, use_container_width=True)
 
         st.dataframe(
-            zone_agg.rename(
-                columns={
-                    "Typ_Lokalizacji": "Typ okolicy",
-                    "Rowery": "Dostępne rowery",
-                    "Stacje": "Liczba stacji",
-                    "Srednio_na_stacje": "Śr. rowerów / stację",
-                }
-            ),
+            zone_df.rename(columns={"Typ_Lokalizacji": "Typ okolicy", "Rowery": "Dostępne rowery", "Stacje": "Stacje"}),
             use_container_width=True,
             hide_index=True,
         )
 
-with tab3:
-    st.subheader(f"🔋 Ile rowerów elektrycznych wystarczy na trasę ≥ {min_range} km?")
+    st.markdown("#### Lista stacji")
+    mode = st.radio(
+        "Widok tabeli:",
+        ["Najwięcej rowerów", "Puste stacje (0)", "Wyszukiwarka"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    if mode == "Najwięcej rowerów":
+        tbl = filtered_stations.sort_values("num_bikes_available", ascending=False).head(15)
+    elif mode == "Puste stacje (0)":
+        tbl = filtered_stations[filtered_stations["num_bikes_available"] == 0].sort_values("capacity", ascending=False)
+    else:
+        q = st.text_input("Szukaj po nazwie stacji:", placeholder="np. Wrzeszcz, Molo, SKM")
+        tbl = filtered_stations.sort_values("num_bikes_available", ascending=False)
+        if q:
+            tbl = tbl[tbl["name"].str.contains(q, case=False, na=False)]
 
+    st.dataframe(
+        tbl[["name", "Miasto", "Typ_Lokalizacji", "num_bikes_available", "capacity", "wypelnienie_pct", "opoznienie_min"]].rename(
+            columns={
+                "name": "Stacja",
+                "Typ_Lokalizacji": "Okolica",
+                "num_bikes_available": "Rowery",
+                "capacity": "Pojemność",
+                "wypelnienie_pct": "Wypełnienie (%)",
+                "opoznienie_min": "Opóźnienie (min)",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+# --- ZAKŁADKA 2: FLOTA I BATERIE ---
+with tab2:
+    f1, f2 = st.columns(2)
+
+    with f1:
+        st.markdown("#### Rowery poza stacjami (free-floating) wg typu")
+        if len(bikes_df) > 0:
+            t_df = bikes_df.groupby("Typ", as_index=False).size().rename(columns={"size": "Liczba"})
+            fig_t = px.pie(t_df, values="Liczba", names="Typ", hole=0.55, color_discrete_sequence=[TEAL_MUTED, NAVY])
+            fig_t.update_traces(textinfo="value+percent")
+            style_chart(fig_t, height=300)
+            st.plotly_chart(fig_t, use_container_width=True)
+        else:
+            st.info("Brak rekordów w feedzie free_bike_status.")
+
+    with f2:
+        st.markdown("#### Jakość danych GPS (kontrola anomalii)")
+        st.caption(
+            f"Surowych rekordów z API: **{meta['raw_bikes_count']}** • "
+            f"Odfiltrowano poza regionem: **{meta['gps_outliers_removed']}** • "
+            f"Poprawnych w regionie: **{meta['free_floating_count']}**."
+        )
+        if "Status" in bikes_df.columns or {"is_disabled", "is_reserved"}.issubset(bikes_df.columns):
+            disabled_cnt = int(bikes_df["is_disabled"].sum()) if "is_disabled" in bikes_df.columns else 0
+            reserved_cnt = int(bikes_df["is_reserved"].sum()) if "is_reserved" in bikes_df.columns else 0
+            ready_cnt = int(len(bikes_df) - disabled_cnt - reserved_cnt)
+            st_df = pd.DataFrame({
+                "Status": ["Gotowe", "Zarezerwowane", "Wyłączone"],
+                "Liczba": [max(ready_cnt, 0), reserved_cnt, disabled_cnt],
+            })
+            fig_s = px.bar(st_df, x="Status", y="Liczba", text="Liczba", color_discrete_sequence=[SLATE_BLUE])
+            fig_s.update_traces(textposition="outside", marker_color=SLATE_BLUE)
+            style_chart(fig_s, height=250)
+            st.plotly_chart(fig_s, use_container_width=True)
+
+    st.markdown(f"#### Rozkład zasięgu baterii e-bike'ów (próg: ≥ {min_km} km)")
     if len(ebikes) > 0:
-        ebikes["Kategoria_Zasiegu"] = ebikes["zasieg_km"].apply(assign_battery_bucket)
+        ebikes["Koszyk"] = ebikes["zasieg_km"].apply(assign_battery_bucket)
         b1, b2 = st.columns([1.3, 1])
 
         with b1:
-            fig_hist = px.histogram(
+            fig_h = px.histogram(
                 ebikes,
                 x="zasieg_km",
                 nbins=20,
-                color_discrete_sequence=["#38BDF8"],
-                labels={"zasieg_km": "Szacowany zasięg baterii (km)", "count": "Liczba rowerów"},
+                labels={"zasieg_km": "Szacowany zasięg (km)", "count": "Liczba e-bike'ów"},
             )
-            fig_hist.add_vline(x=min_range, line_dash="dash", line_color="#FB7185", annotation_text=f"Twój cel: {min_range} km ({len(ebikes_ready)} szt.)")
-            apply_navy_theme(fig_hist, height=400)
-            fig_hist.update_layout(bargap=0.1, yaxis_title="Liczba rowerów elektrycznych")
-            st.plotly_chart(fig_hist, use_container_width=True)
+            fig_h.update_traces(marker_color=NAVY)
+            fig_h.add_vline(x=min_km, line_dash="dash", line_color=CORAL_MUTED, annotation_text=f"{min_km} km ({len(ebikes_ready)} szt.)")
+            style_chart(fig_h, height=340)
+            fig_h.update_layout(bargap=0.1, yaxis_title="Liczba rowerów")
+            st.plotly_chart(fig_h, use_container_width=True)
 
         with b2:
-            bucket_df = ebikes.groupby("Kategoria_Zasiegu", as_index=False).size().rename(columns={"size": "Liczba_Rowerow"})
-            fig_bucket = px.bar(
-                bucket_df,
-                x="Kategoria_Zasiegu",
-                y="Liczba_Rowerow",
-                text="Liczba_Rowerow",
-                color="Kategoria_Zasiegu",
-                color_discrete_sequence=["#FB7185", "#FBBF24", "#2DD4BF"],
-                labels={"Kategoria_Zasiegu": "Gotowość baterii", "Liczba_Rowerow": "Liczba rowerów"},
-            )
-            fig_bucket.update_traces(textposition="outside")
-            apply_navy_theme(fig_bucket, height=400)
-            fig_bucket.update_layout(showlegend=False)
-            st.plotly_chart(fig_bucket, use_container_width=True)
-
-        pct_ready = round(len(ebikes_ready) / len(ebikes) * 100, 1)
-        st.info(
-            f"🚴‍♂️ **Okiem rowerzysty:** Jako osoba, która regularnie jeździ na rowerze po Trójmieście, wiem, że sama obecność roweru na stacji to połowa sukcesu — liczy się stan baterii. "
-            f"Spośród **{len(ebikes)}** e-bike'ów w bieżącym zestawieniu, **{len(ebikes_ready)}** (**{pct_ready}%**) ma zasięg co najmniej **{min_range} km**."
-        )
+            b_df = ebikes.groupby("Koszyk", as_index=False).size().rename(columns={"size": "Liczba"})
+            fig_b = px.bar(b_df, x="Koszyk", y="Liczba", text="Liczba", labels={"Koszyk": "Przedział zasięgu", "Liczba": "Liczba rowerów"})
+            fig_b.update_traces(textposition="outside", marker_color=TEAL_MUTED)
+            style_chart(fig_b, height=340)
+            st.plotly_chart(fig_b, use_container_width=True)
     else:
-        st.info("Brak danych o zasięgu e-bike'ów dla wybranych filtrów.")
+        st.info("Brak danych o zasięgu e-bike'ów dla bieżących filtrów.")
 
-with tab4:
-    st.subheader("🤖 Asystent AI – Analiza bieżących danych w języku naturalnym")
-    st.markdown("Agent odpowiada na podstawie aktualnego stanu stacji i floty MEVO.")
+# --- ZAKŁADKA 3: ASYSTENT AI ---
+with tab3:
+    st.markdown("#### Zapytaj asystenta o bieżące dane")
+    st.caption("Odpowiedź generowana na podstawie aktualnych statystyk ze stacji i floty.")
 
-    top_stations_txt = filtered_stations.sort_values("num_bikes_available", ascending=False).head(15)[
+    top_txt = filtered_stations.sort_values("num_bikes_available", ascending=False).head(15)[
         ["name", "Miasto", "num_bikes_available", "capacity", "wypelnienie_pct"]
     ].to_string(index=False)
 
-    city_stats_txt = (
+    city_txt = (
         stations_df.groupby("Miasto", as_index=False)
-        .agg(
-            Dostepne=("num_bikes_available", "sum"),
-            Pojemnosc=("capacity", "sum"),
-            Puste_Stacje=("num_bikes_available", lambda s: int((s == 0).sum())),
-        )
+        .agg(Rowery=("num_bikes_available", "sum"), Pojemnosc=("capacity", "sum"), Puste=("num_bikes_available", lambda s: int((s == 0).sum())))
         .to_string(index=False)
     )
 
-    prompt_options = [
-        "Podsumuj krótko aktualną dostępność rowerów i wskaż 3 najlepsze miejsca na start wycieczki.",
-        "Które obszary mają teraz najlepsze wypełnienie stacji, a gdzie jest najwięcej pustych stacji?",
-        "Jak wygląda gotowość baterii e-bike'ów na dłuższą trasę (powyżej 50 km)?",
+    presets = [
+        "Gdzie jest teraz najwięcej rowerów na stacjach w wybranym obszarze?",
+        "Jak wygląda sytuacja z bateriami e-bike'ów na dłuższą trasę (≥ 50 km)?",
+        "Które obszary mają najwięcej pustych stacji?",
     ]
-    selected_prompt = st.selectbox("Wybierz gotowe pytanie lub wpisz własne:", prompt_options)
-    user_question = st.text_input("Pytanie do Agenta AI:", value=selected_prompt)
+    chosen = st.selectbox("Przykładowe pytanie:", presets)
+    question = st.text_input("Twoje pytanie:", value=chosen)
 
-    if st.button("🚀 Zapytaj Agenta AI", type="primary"):
+    if st.button("Wyślij pytanie", type="primary"):
         api_key = st.secrets.get("GEMINI_API_KEY", None) if hasattr(st, "secrets") else None
-
         if api_key:
-            with st.spinner("Agent analizuje aktualne dane..."):
+            with st.spinner("Analizuję dane..."):
                 client = genai.Client(api_key=api_key)
-                context_prompt = f"""Jesteś analitykiem danych systemu rowerowego MEVO w Trójmieście.
-Odpowiedz zwięźle i konkretnie po polsku na pytanie wyłącznie na podstawie danych z godziny {updated_at}:
-
-STATYSTYKI OBSZARÓW:
-{city_stats_txt}
-
-TOP 15 STACJI:
-{top_stations_txt}
-
-BATERIE E-BIKE:
-- Liczba e-bike'ów w zestawieniu: {len(ebikes)}
-- Średni zasięg: {avg_ebike_km}
-- Zasięg >= 50 km: {int((ebikes['zasieg_km'] >= 50).sum()) if len(ebikes) > 0 else 0}
-
-PYTANIE: {user_question}"""
-
-                response = None
-                last_error = None
+                prompt = (
+                    f"Jesteś analitykiem danych systemu rowerowego MEVO. Odpowiedz krótko i rzeczowo po polsku "
+                    f"wyłącznie na podstawie danych z {meta['updated_at']}:\n\n"
+                    f"MIASTA:\n{city_txt}\n\nTOP 15 STACJI:\n{top_txt}\n\n"
+                    f"E-BIKE: liczba={len(ebikes)}, średni zasięg={avg_km_str}, >=50 km={int((ebikes['zasieg_km'] >= 50).sum()) if len(ebikes) > 0 else 0}\n\n"
+                    f"PYTANIE: {question}"
+                )
+                resp = None
+                last_err = None
                 for model_name in ["gemini-3.8-flash", "gemini-2.5-flash"]:
                     for _ in range(2):
                         try:
-                            response = client.models.generate_content(model=model_name, contents=context_prompt)
+                            resp = client.models.generate_content(model=model_name, contents=prompt)
                             break
                         except Exception as err:
-                            last_error = err
+                            last_err = err
                             if "503" in str(err) or "UNAVAILABLE" in str(err):
                                 time.sleep(1.2)
                             else:
                                 break
-                    if response is not None:
+                    if resp is not None:
                         break
 
-                if response is not None and getattr(response, "text", None):
-                    st.success("**Odpowiedź Agenta AI:**")
-                    st.write(response.text)
+                if resp is not None and getattr(resp, "text", None):
+                    st.markdown(f"<div class='lead-box'>{resp.text}</div>", unsafe_allow_html=True)
                 else:
-                    st.warning("Model jest chwilowo przeciążony — wyświetlam podsumowanie z bieżących danych:")
-                    st.info(build_fallback_summary(stations_df, filtered_stations, ebikes, avg_ebike_km, updated_at, last_error))
+                    st.markdown(
+                        f"<div class='lead-box'>{build_fallback_answer(stations_df, filtered_stations, ebikes, avg_km_str, meta['updated_at'], last_err)}</div>",
+                        unsafe_allow_html=True,
+                    )
         else:
-            st.info(build_fallback_summary(stations_df, filtered_stations, ebikes, avg_ebike_km, updated_at))
+            st.markdown(
+                f"<div class='lead-box'>{build_fallback_answer(stations_df, filtered_stations, ebikes, avg_km_str, meta['updated_at'])}</div>",
+                unsafe_allow_html=True,
+            )
 
 st.divider()
-st.caption("Autor: Sylwester Zaborowski | Źródło danych: Otwarte Dane Systemu Roweru Metropolitalnego MEVO (GBFS) | Projekt portfolio Data Analytics.")
+st.caption("Źródło: Otwarte Dane MEVO (GBFS) • Projekt analityczny.")
