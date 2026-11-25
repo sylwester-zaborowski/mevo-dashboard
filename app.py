@@ -583,7 +583,7 @@ FLOTA ROWEROWA (poza stacjami / free_bike_status):
 PYTANIE UŻYTKOWNIKA: {user_question}"""
 
                     response = client.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-3.8-flash",
                         contents=context_prompt,
                     )
                     st.success("**Odpowiedź Agenta AI:**")
