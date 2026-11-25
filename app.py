@@ -95,7 +95,6 @@ def load_all_mevo_feeds():
     else:
         stations["ostatni_raport"] = "-"
 
-    # Przypisanie miasta na podstawie współrzędnych GPS
     def assign_city(row):
         lat, lon = row["lat"], row["lon"]
         if 54.27 <= lat <= 54.425 and 18.45 <= lon <= 18.95:
@@ -113,7 +112,6 @@ def load_all_mevo_feeds():
 
     stations["Miasto"] = stations.apply(assign_city, axis=1)
 
-    # Kategoryzacja typu okolicy stacji
     def assign_zone_type(name):
         n = str(name).lower()
         if any(k in n for k in ["skm", "pkm", "dworzec", "główny", "wrzeszcz", "oliwa", "politechnika", "uniwersytet", "alchemia", "olivia", "centrum"]):
@@ -144,7 +142,6 @@ def load_all_mevo_feeds():
     bikes["zasieg_km"] = (bikes["current_range_meters"] / 1000).fillna(0).round(1) if "current_range_meters" in bikes.columns else 0.0
     bikes["Typ_Roweru"] = bikes["vehicle_type_id"].map({"ebike": "Elektryczny (E-Bike)", "bike": "Klasyczny"}).fillna("Inny") if "vehicle_type_id" in bikes.columns else "Inny"
 
-    # Bezpieczne sprawdzenie czy w API istnieje kolumna station_id
     if "station_id" in bikes.columns:
         bikes["Gdzie_Stoi"] = np.where(bikes["station_id"].notna() & (bikes["station_id"] != ""), "Na stacji", "Poza stacją (Free-floating)")
     else:
@@ -257,11 +254,11 @@ with tab1:
 
         def get_point_color(row):
             if row["num_bikes_available"] == 0:
-                return [230, 57, 70, 210]    # Czerwony (brak rowerów)
+                return [230, 57, 70, 210]
             elif row["wypelnienie_pct"] >= 80:
-                return [0, 180, 216, 220]    # Niebieski (dużo rowerów)
+                return [0, 180, 216, 220]
             else:
-                return [42, 157, 143, 210]   # Szmaragdowy (dostępne)
+                return [42, 157, 143, 210]
 
         map_df["color"] = map_df.apply(get_point_color, axis=1)
         map_df["radius"] = np.clip(map_df["num_bikes_available"] * 18 + 60, 60, 400)
@@ -284,10 +281,7 @@ with tab1:
         )
 
         tooltip = {
-            "html": "<b>{name}</b><br/>"
-                    "Miasto: {Miasto}<br/>"
-                    "Dostępne rowery: <b>{num_bikes_available}</b> / {capacity} ({wypelnienie_pct}%)<br/>"
-                    "⚡ E-Bike: {ebike_na_stacji} | 🚲 Klasyczne: {klasyczne_na_stacji}",
+            "html": "<b>{name}</b><br/>Miasto: {Miasto}<br/>Dostępne rowery: <b>{num_bikes_available}</b> / {capacity} ({wypelnienie_pct}%)<br/>⚡ E-Bike: {ebike_na_stacji} | 🚲 Klasyczne: {klasyczne_na_stacji}",
             "style": {"backgroundColor": "#161B22", "color": "#F0F6FC", "border": "1px solid #30363D"}
         }
 
@@ -572,23 +566,22 @@ with tab4:
             with st.spinner("Agent analizuje aktualne dane z API MEVO..."):
                 try:
                     client = genai.Client(api_key=api_key)
-                    context_prompt = f"""
-                    Jesteś pomocnym analitykiem danych systemu rowerowego MEVO w Trójmieście.
-                    Odpowiedz prostym, zrozumiałym językiem po polsku na pytanie użytkownika wyłącznie na podstawie poniższych danych z godziny {meta['updated_at']}:
+                    context_prompt = f"""Jesteś pomocnym analitykiem danych systemu rowerowego MEVO w Trójmieście.
+Odpowiedz prostym, zrozumiałym językiem po polsku na pytanie użytkownika wyłącznie na podstawie poniższych danych z godziny {meta['updated_at']}:
 
-                    STATYSTYKI MIAST:
-                    {city_stats_txt}
+STATYSTYKI MIAST:
+{city_stats_txt}
 
-                    TOP 15 STACJI:
-                    {top_stations_txt}
+TOP 15 STACJI:
+{top_stations_txt}
 
-                    FLOTA ROWEROWA (poza stacjami / free_bike_status):
-                    - Sprawne rowery w free_bike_status: {len(filtered_bikes)} (w tym e-bike: {len(ebikes)}, klasyczne: {len(filtered_bikes) - len(ebikes)})
-                    - Średni zasięg e-bike'ów: {avg_ebike_km}
-                    - E-bike'i z zasięgiem >= 50 km: {len(ebikes[ebikes['zasieg_km'] >= 50])}
+FLOTA ROWEROWA (poza stacjami / free_bike_status):
+- Sprawne rowery w free_bike_status: {len(filtered_bikes)} (w tym e-bike: {len(ebikes)}, klasyczne: {len(filtered_bikes) - len(ebikes)})
+- Średni zasięg e-bike'ów: {avg_ebike_km}
+- E-bike'i z zasięgiem >= 50 km: {len(ebikes[ebikes['zasieg_km'] >= 50])}
 
-                    PYTANIE UŻYTKOWNIKA: {user_question}
-                    """
+PYTANIE UŻYTKOWNIKA: {user_question}"""
+
                     response = client.models.generate_content(
                         model="gemini-2.5-flash",
                         contents=context_prompt,
@@ -603,7 +596,15 @@ with tab4:
             top3_names = ", ".join(filtered_stations.sort_values("num_bikes_available", ascending=False).head(3)["name"].tolist())
             long_range_ebikes = len(ebikes[ebikes["zasieg_km"] >= 50])
 
-            st.info(
-                f"🤖 **Podsumowanie Agenta (stan na {meta['updated_at']}):**\n\n"
-                f"* **Najwięcej rowerów:** Obecnie liderem jest **{best_city}** ({best_city_cnt} dostępnych rowerów na stacjach).\n"
-                f"* **TOP 3 stacje na start:** {top3_names}.\
+            fallback_msg = f"""🤖 **Podsumowanie Agenta (stan na {meta['updated_at']}):**
+
+* **Najwięcej rowerów:** Obecnie liderem jest **{best_city}** ({best_city_cnt} dostępnych rowerów na stacjach).
+* **TOP 3 stacje na start:** {top3_names}.
+* **Stan baterii e-bike'ów:** W systemie raportuje **{long_range_ebikes}** sprawnych rowerów elektrycznych z zasięgiem powyżej 50 km (średni zasięg: **{avg_ebike_km}**).
+
+*(Aby odblokować swobodną rozmowę z modelem Gemini, dodaj `GEMINI_API_KEY` w ustawieniach Secrets na Streamlit Cloud).*"""
+            st.info(fallback_msg)
+
+# --- STOPKA ---
+st.divider()
+st.caption("Autor: Sylwester Zaborowski | Źródło danych: Otwarte Dane Systemu Roweru Metropolitalnego MEVO (GBFS) | Projekt portfolio Data Analytics.")
