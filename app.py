@@ -15,44 +15,44 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Jasny, stonowany motyw z profesjonalnym granatem (#0F2537)
+# Spokojny, elegancki granat bez neonów
 st.markdown(
     """
     <style>
         .stApp {
-            background-color: #F6F8FB;
-            color: #0F2537;
+            background-color: #0F172A;
+            color: #F1F5F9;
         }
         section[data-testid="stSidebar"] {
-            background-color: #FFFFFF;
-            border-right: 1px solid #E2E8F0;
+            background-color: #162033;
+            border-right: 1px solid #283852;
         }
         div[data-testid="stMetric"] {
-            background-color: #FFFFFF;
-            border: 1px solid #E2E8F0;
+            background-color: #1E293B;
+            border: 1px solid #334155;
             padding: 16px 20px;
             border-radius: 12px;
         }
         div[data-testid="stMetric"] label {
-            color: #475569 !important;
-            font-size: 0.82rem !important;
+            color: #CBD5E1 !important;
+            font-size: 0.84rem !important;
             font-weight: 600 !important;
         }
         div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-            color: #0F2537 !important;
+            color: #F8FAFC !important;
             font-size: 1.75rem !important;
             font-weight: 700 !important;
         }
         .lead-box {
-            background-color: #FFFFFF;
-            border-left: 4px solid #0F2537;
-            border-top: 1px solid #E2E8F0;
-            border-right: 1px solid #E2E8F0;
-            border-bottom: 1px solid #E2E8F0;
+            background-color: #1E293B;
+            border-left: 4px solid #60A5FA;
+            border-top: 1px solid #334155;
+            border-right: 1px solid #334155;
+            border-bottom: 1px solid #334155;
             padding: 14px 18px;
             border-radius: 0 10px 10px 0;
             margin-bottom: 16px;
-            color: #1E293B;
+            color: #F1F5F9;
             font-size: 0.95rem;
         }
     </style>
@@ -60,18 +60,21 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-NAVY = "#0F2537"
-SLATE_BLUE = "#3B6E8C"
-TEAL_MUTED = "#2B7A78"
-SAND = "#D9822B"
-CORAL_MUTED = "#C84B31"
-LIGHT_GRID = "#E2E8F0"
+NAVY_DARK = "#0F172A"
+CARD_BG = "#1E293B"
+PLOT_BG = "#162033"
+GRID_COLOR = "#283852"
 
-PALETTE = [NAVY, SLATE_BLUE, TEAL_MUTED, SAND, CORAL_MUTED]
+BLUE_SOFT = "#60A5FA"
+TEAL_SOFT = "#5EEAD4"
+AMBER_SOFT = "#FBBF24"
+RED_SOFT = "#F87171"
+SLATE_BAR = "#475569"
+
 STATUS_MAP = {
-    "Dostępne (1–79%)": TEAL_MUTED,
-    "Dużo rowerów (≥80%)": NAVY,
-    "Brak rowerów (0 szt.)": CORAL_MUTED,
+    "Dostępne (1–79%)": TEAL_SOFT,
+    "Dużo rowerów (≥80%)": BLUE_SOFT,
+    "Brak rowerów (0 szt.)": RED_SOFT,
 }
 
 
@@ -119,15 +122,15 @@ def assign_battery_bucket(km: float) -> str:
 
 def style_chart(fig: go.Figure, height: int = 390) -> go.Figure:
     fig.update_layout(
-        template="plotly_white",
-        paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FFFFFF",
-        font={"color": NAVY, "family": "sans-serif"},
+        template="plotly_dark",
+        paper_bgcolor=CARD_BG,
+        plot_bgcolor=PLOT_BG,
+        font={"color": "#F1F5F9", "family": "sans-serif"},
         height=height,
         margin={"t": 20, "b": 24, "l": 12, "r": 12},
     )
-    fig.update_xaxes(showgrid=True, gridcolor=LIGHT_GRID, zeroline=False)
-    fig.update_yaxes(showgrid=True, gridcolor=LIGHT_GRID, zeroline=False)
+    fig.update_xaxes(showgrid=True, gridcolor=GRID_COLOR, zeroline=False)
+    fig.update_yaxes(showgrid=True, gridcolor=GRID_COLOR, zeroline=False)
     return fig
 
 
@@ -218,7 +221,7 @@ ebikes = filtered_bikes[filtered_bikes["vehicle_type_id"] == "ebike"].copy() if 
 ebikes_ready = ebikes[ebikes["zasieg_km"] >= min_km]
 
 # Nagłówek i 4 główne KPI
-st.markdown(f"## MEVO Trójmiasto — Dostępność i Stan Floty")
+st.markdown("## MEVO Trójmiasto — Dostępność i Stan Floty")
 st.caption(f"Otwarte dane GBFS ({meta['feeds_count']} źródeł) • Odświeżono: {meta['updated_at']}")
 
 total_bikes = int(filtered_stations["num_bikes_available"].sum())
@@ -262,10 +265,10 @@ with tab1:
             y="name",
             orientation="h",
             text="num_bikes_available",
-            color_discrete_sequence=[NAVY],
+            color_discrete_sequence=[BLUE_SOFT],
             labels={"num_bikes_available": "Dostępne rowery", "name": ""},
         )
-        fig_top.update_traces(textposition="outside", marker_color=NAVY)
+        fig_top.update_traces(textposition="outside", marker_color=BLUE_SOFT)
         style_chart(fig_top, height=380)
         st.plotly_chart(fig_top, use_container_width=True)
 
@@ -280,8 +283,8 @@ with tab1:
             .sort_values("Rowery", ascending=True)
         )
         fig_city = go.Figure()
-        fig_city.add_trace(go.Bar(y=city_df["Miasto"], x=city_df["Rowery"], name="Dostępne rowery", orientation="h", marker_color=NAVY))
-        fig_city.add_trace(go.Bar(y=city_df["Miasto"], x=city_df["Wolne_miejsca"], name="Wolne miejsca", orientation="h", marker_color="#CBD5E1"))
+        fig_city.add_trace(go.Bar(y=city_df["Miasto"], x=city_df["Rowery"], name="Dostępne rowery", orientation="h", marker_color=BLUE_SOFT))
+        fig_city.add_trace(go.Bar(y=city_df["Miasto"], x=city_df["Wolne_miejsca"], name="Wolne miejsca", orientation="h", marker_color=SLATE_BAR))
         style_chart(fig_city, height=380)
         fig_city.update_layout(barmode="stack", legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1})
         st.plotly_chart(fig_city, use_container_width=True)
@@ -315,7 +318,7 @@ with tab1:
             filtered_stations.groupby("Typ_Lokalizacji", as_index=False)
             .agg(Rowery=("num_bikes_available", "sum"), Stacje=("station_id", "count"))
         )
-        fig_zone = px.pie(zone_df, values="Rowery", names="Typ_Lokalizacji", hole=0.55, color_discrete_sequence=[NAVY, TEAL_MUTED, SAND])
+        fig_zone = px.pie(zone_df, values="Rowery", names="Typ_Lokalizacji", hole=0.55, color_discrete_sequence=[BLUE_SOFT, TEAL_SOFT, AMBER_SOFT])
         fig_zone.update_traces(textposition="inside", textinfo="percent+label")
         style_chart(fig_zone, height=250)
         fig_zone.update_layout(showlegend=False, margin={"t": 8, "b": 8, "l": 8, "r": 8})
@@ -367,7 +370,7 @@ with tab2:
         st.markdown("#### Rowery poza stacjami (free-floating) wg typu")
         if len(bikes_df) > 0:
             t_df = bikes_df.groupby("Typ", as_index=False).size().rename(columns={"size": "Liczba"})
-            fig_t = px.pie(t_df, values="Liczba", names="Typ", hole=0.55, color_discrete_sequence=[TEAL_MUTED, NAVY])
+            fig_t = px.pie(t_df, values="Liczba", names="Typ", hole=0.55, color_discrete_sequence=[TEAL_SOFT, BLUE_SOFT])
             fig_t.update_traces(textinfo="value+percent")
             style_chart(fig_t, height=300)
             st.plotly_chart(fig_t, use_container_width=True)
@@ -381,16 +384,16 @@ with tab2:
             f"Odfiltrowano poza regionem: **{meta['gps_outliers_removed']}** • "
             f"Poprawnych w regionie: **{meta['free_floating_count']}**."
         )
-        if "Status" in bikes_df.columns or {"is_disabled", "is_reserved"}.issubset(bikes_df.columns):
-            disabled_cnt = int(bikes_df["is_disabled"].sum()) if "is_disabled" in bikes_df.columns else 0
-            reserved_cnt = int(bikes_df["is_reserved"].sum()) if "is_reserved" in bikes_df.columns else 0
+        if {"is_disabled", "is_reserved"}.issubset(bikes_df.columns):
+            disabled_cnt = int(bikes_df["is_disabled"].sum())
+            reserved_cnt = int(bikes_df["is_reserved"].sum())
             ready_cnt = int(len(bikes_df) - disabled_cnt - reserved_cnt)
             st_df = pd.DataFrame({
                 "Status": ["Gotowe", "Zarezerwowane", "Wyłączone"],
                 "Liczba": [max(ready_cnt, 0), reserved_cnt, disabled_cnt],
             })
-            fig_s = px.bar(st_df, x="Status", y="Liczba", text="Liczba", color_discrete_sequence=[SLATE_BLUE])
-            fig_s.update_traces(textposition="outside", marker_color=SLATE_BLUE)
+            fig_s = px.bar(st_df, x="Status", y="Liczba", text="Liczba", color_discrete_sequence=[TEAL_SOFT])
+            fig_s.update_traces(textposition="outside", marker_color=TEAL_SOFT)
             style_chart(fig_s, height=250)
             st.plotly_chart(fig_s, use_container_width=True)
 
@@ -406,8 +409,8 @@ with tab2:
                 nbins=20,
                 labels={"zasieg_km": "Szacowany zasięg (km)", "count": "Liczba e-bike'ów"},
             )
-            fig_h.update_traces(marker_color=NAVY)
-            fig_h.add_vline(x=min_km, line_dash="dash", line_color=CORAL_MUTED, annotation_text=f"{min_km} km ({len(ebikes_ready)} szt.)")
+            fig_h.update_traces(marker_color=BLUE_SOFT)
+            fig_h.add_vline(x=min_km, line_dash="dash", line_color=RED_SOFT, annotation_text=f"{min_km} km ({len(ebikes_ready)} szt.)")
             style_chart(fig_h, height=340)
             fig_h.update_layout(bargap=0.1, yaxis_title="Liczba rowerów")
             st.plotly_chart(fig_h, use_container_width=True)
@@ -415,7 +418,7 @@ with tab2:
         with b2:
             b_df = ebikes.groupby("Koszyk", as_index=False).size().rename(columns={"size": "Liczba"})
             fig_b = px.bar(b_df, x="Koszyk", y="Liczba", text="Liczba", labels={"Koszyk": "Przedział zasięgu", "Liczba": "Liczba rowerów"})
-            fig_b.update_traces(textposition="outside", marker_color=TEAL_MUTED)
+            fig_b.update_traces(textposition="outside", marker_color=AMBER_SOFT)
             style_chart(fig_b, height=340)
             st.plotly_chart(fig_b, use_container_width=True)
     else:
