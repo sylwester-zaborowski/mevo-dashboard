@@ -60,7 +60,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-NAVY_DARK = "#0F172A"
 CARD_BG = "#1E293B"
 PLOT_BG = "#162033"
 GRID_COLOR = "#283852"
@@ -487,6 +486,27 @@ with tab3:
                 f"<div class='lead-box'>{build_fallback_answer(stations_df, filtered_stations, ebikes, avg_km_str, meta['updated_at'])}</div>",
                 unsafe_allow_html=True,
             )
+
+# --- KOMPETENCJE BI (MIARY I MODELOWANIE W LOGICE APLIKACJI) ---
+st.divider()
+st.markdown("### Wskaźniki BI i jakość danych")
+st.caption("Udział pustych punktów, dostępność miejsc zwrotu, gotowość baterii oraz świeżość sygnału w wybranym filtrze.")
+
+empty_pct = round((empty_stations / len(filtered_stations) * 100), 1) if len(filtered_stations) > 0 else 0.0
+avg_delay = round(float(filtered_stations["opoznienie_min"].mean()), 1) if "opoznienie_min" in filtered_stations.columns and filtered_stations["opoznienie_min"].notna().any() else 0.0
+
+b_k1, b_k2, b_k3, b_k4 = st.columns(4)
+b_k1.metric("Udział pustych stacji", f"{empty_pct}%", f"{empty_stations} z {len(filtered_stations)} stacji")
+b_k2.metric("Wolne miejsca na oddanie", f"{total_docks:,}".replace(",", " "), "suma wolnych stojaków")
+b_k3.metric(f"E-bike ≥ {min_km} km", f"{len(ebikes_ready):,}".replace(",", " "), "w tym z zasięgiem ≥ 50 km: " + str(int((ebikes["zasieg_km"] >= 50).sum()) if len(ebikes) > 0 else 0))
+b_k4.metric("Śr. opóźnienie odczytu", f"{avg_delay} min", "czas od ostatniego sygnału")
+
+with st.expander("Jak to jest modelowane (podejście BI / analityczne)"):
+    st.markdown(
+        "- **Logika wymiarów i faktów:** rozdzielenie cech lokalizacji (obszar, typ okolicy, pojemność) od zmiennych stanów (dostępne rowery, wolne miejsca, zasięg baterii).\n"
+        "- **Bezpieczne dzielenie i progi:** obsługa zerowej pojemności, kategoryzacja wypełnienia i zasięgu baterii względem zadanego dystansu.\n"
+        "- **Kontrola jakości danych:** filtrowanie błędnych współrzędnych GPS poza regionem oraz monitorowanie opóźnienia raportowania stacji."
+    )
 
 st.divider()
 st.caption("Źródło: Otwarte Dane MEVO (GBFS) • Projekt analityczny.")
