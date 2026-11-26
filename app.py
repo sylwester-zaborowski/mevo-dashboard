@@ -9,13 +9,13 @@ import requests
 import streamlit as st
 
 st.set_page_config(
-    page_title="MEVO Trójmiasto – Dostępność Rowerów i Agent AI",
+    page_title="MEVO Trójmiasto – Analityka Dostępności i Agent AI",
     page_icon="🚲",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Spokojny, elegancki granat bez neonów
+# Spokojny granat bez neonów
 st.markdown(
     """
     <style>
@@ -30,17 +30,17 @@ st.markdown(
         div[data-testid="stMetric"] {
             background-color: #1E293B;
             border: 1px solid #334155;
-            padding: 16px 20px;
+            padding: 15px 18px;
             border-radius: 12px;
         }
         div[data-testid="stMetric"] label {
             color: #CBD5E1 !important;
-            font-size: 0.84rem !important;
+            font-size: 0.82rem !important;
             font-weight: 600 !important;
         }
         div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
             color: #F8FAFC !important;
-            font-size: 1.75rem !important;
+            font-size: 1.7rem !important;
             font-weight: 700 !important;
         }
         .lead-box {
@@ -137,7 +137,7 @@ def build_fallback_answer(
     stations: pd.DataFrame,
     filtered: pd.DataFrame,
     ebikes: pd.DataFrame,
-    avg_ebike_km: str,
+    median_km_str: str,
     timestamp: str,
     err: Exception | None = None,
 ) -> str:
@@ -149,11 +149,11 @@ def build_fallback_answer(
     msg = (
         f"**Podsumowanie z danych na żywo ({timestamp}):**\n\n"
         f"- Najwięcej rowerów na stacjach jest obecnie w obszarze **{best_city}** ({best_city_cnt} szt.).\n"
-        f"- Najlepsze stacje pod względem liczby rowerów w wybranym filtrze: **{top3}**.\n"
-        f"- E-bike'i z zasięgiem ≥ 50 km: **{long_range}** szt. (średni zasięg: **{avg_ebike_km}**)."
+        f"- Najwyższy wolumen rowerów w wybranym filtrze: **{top3}**.\n"
+        f"- E-bike'i z zasięgiem ≥ 50 km: **{long_range}** szt. (mediana zasięgu: **{median_km_str}**)."
     )
     if err is not None:
-        msg += f"\n\n*(Użyto podsumowania lokalnego — chwilowy błąd API: {err})*"
+        msg += f"\n\n*(Podsumowanie lokalne — chwilowy błąd API: {err})*"
     return msg
 
 
@@ -201,13 +201,13 @@ def load_mevo_data() -> tuple[pd.DataFrame, pd.DataFrame, dict]:
 stations_df, bikes_df, meta = load_mevo_data()
 
 # Panel boczny
-st.sidebar.markdown("### Filtry")
+st.sidebar.markdown("### Filtry obszaru")
 cities = sorted(stations_df["Miasto"].unique())
 default_cities = [c for c in ["Gdańsk", "Gdynia", "Sopot"] if c in cities] or cities
-selected_cities = st.sidebar.multiselect("Obszar / gminy:", options=cities, default=default_cities)
+selected_cities = st.sidebar.multiselect("Gminy / strefy:", options=cities, default=default_cities)
 
-st.sidebar.markdown("### Rower elektryczny")
-min_km = st.sidebar.slider("Minimalny zasięg trasy (km):", 5, 100, 30, step=5)
+st.sidebar.markdown("### Parametry zasięgu i gotowości")
+min_km = st.sidebar.slider("Próg zasięgu e-bike (km):", 5, 100, 30, step=5)
 only_ready = st.sidebar.checkbox("Tylko rowery gotowe do jazdy", value=True)
 
 filtered_stations = stations_df[stations_df["Miasto"].isin(selected_cities)].copy() if selected_cities else stations_df.copy()
@@ -219,44 +219,48 @@ if only_ready and {"is_disabled", "is_reserved"}.issubset(filtered_bikes.columns
 ebikes = filtered_bikes[filtered_bikes["vehicle_type_id"] == "ebike"].copy() if "vehicle_type_id" in filtered_bikes.columns else pd.DataFrame(columns=["zasieg_km"])
 ebikes_ready = ebikes[ebikes["zasieg_km"] >= min_km]
 
-# Nagłówek i 4 główne KPI
-st.markdown("## MEVO Trójmiasto — Dostępność i Stan Floty")
+# Wariancja względem średniej na stację w wybranym filtrze
+area_avg_bikes = float(filtered_stations["num_bikes_available"].mean()) if len(filtered_stations) > 0 else 0.0
+filtered_stations["odchylenie_od_sr"] = (filtered_stations["num_bikes_available"] - area_avg_bikes).round(1)
+
+# Nagłówek i główne KPI
+st.markdown("## MEVO Trójmiasto — Dostępność, Wypełnienie i Agent AI")
 st.caption(f"Otwarte dane GBFS ({meta['feeds_count']} źródeł) • Odświeżono: {meta['updated_at']}")
 
 total_bikes = int(filtered_stations["num_bikes_available"].sum())
 total_docks = int(filtered_stations["num_docks_available"].sum()) if "num_docks_available" in filtered_stations.columns else int(filtered_stations["capacity"].sum() - total_bikes)
 total_cap = int(filtered_stations["capacity"].sum())
 fill_pct = round((total_bikes / total_cap * 100), 1) if total_cap > 0 else 0.0
-active_stations = int((filtered_stations["num_bikes_available"] > 0).sum())
 empty_stations = int((filtered_stations["num_bikes_available"] == 0).sum())
-avg_km_str = f"{ebikes['zasieg_km'].mean():.1f} km" if len(ebikes) > 0 else "0.0 km"
+zero_share_pct = round((empty_stations / len(filtered_stations) * 100), 1) if len(filtered_stations) > 0 else 0.0
+median_km_str = f"{ebikes['zasieg_km'].median():.1f} km" if len(ebikes) > 0 else "0.0 km"
+avg_delay = round(float(filtered_stations["opoznienie_min"].mean()), 1) if "opoznienie_min" in filtered_stations.columns and filtered_stations["opoznienie_min"].notna().any() else 0.0
 
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Dostępne rowery (stacje)", f"{total_bikes:,}".replace(",", " "), f"Wolnych miejsc: {total_docks:,}".replace(",", " "))
-k2.metric("Stacje z rowerami", f"{active_stations} / {len(filtered_stations)}", f"Pustych: {empty_stations}", delta_color="inverse")
-k3.metric("Średnie wypełnienie", f"{fill_pct}%", f"Pojemność: {total_cap:,}".replace(",", " "))
-k4.metric(f"E-bike ≥ {min_km} km", f"{len(ebikes_ready):,}".replace(",", " "), f"Śr. zasięg: {avg_km_str}")
+k1.metric("Dostępne rowery (stacje)", f"{total_bikes:,}".replace(",", " "), f"Wolne miejsca: {total_docks:,}".replace(",", " "))
+k2.metric("Wypełnienie stacji", f"{fill_pct}%", f"Puste stacje: {zero_share_pct}% ({empty_stations})", delta_color="inverse")
+k3.metric(f"E-bike ≥ {min_km} km", f"{len(ebikes_ready):,}".replace(",", " "), f"Mediana zasięgu: {median_km_str}")
+k4.metric("Śr. opóźnienie sygnału", f"{avg_delay} min", f"Anomalie GPS usunięte: {meta['gps_outliers_removed']}")
 
 st.write("")
 
-tab1, tab2, tab3 = st.tabs(["Dostępność i Stacje", "Flota i Baterie", "Asystent AI"])
+tab1, tab2, tab3 = st.tabs(["Dostępność i Odchylenia", "Flota i Baterie", "Asystent AI"])
 
-# --- ZAKŁADKA 1: DOSTĘPNOŚĆ I STACJE ---
+# --- ZAKŁADKA 1: DOSTĘPNOŚĆ I ODCHYLENIA ---
 with tab1:
     if len(filtered_stations) > 0:
         top_st = filtered_stations.sort_values("num_bikes_available", ascending=False).iloc[0]
-        median_lag = filtered_stations["opoznienie_min"].median()
-        lag_txt = f" • Mediana opóźnienia sygnału stacji: {median_lag:.1f} min" if pd.notna(median_lag) else ""
         st.markdown(
-            f"<div class='lead-box'>Najwięcej rowerów stoi obecnie na stacji <b>{top_st['name']}</b> "
-            f"({int(top_st['num_bikes_available'])} szt.). W wybranym obszarze <b>{empty_stations}</b> stacji ma 0 rowerów{lag_txt}.</div>",
+            f"<div class='lead-box'>Najwyższy wolumen rowerów na stacji: <b>{top_st['name']}</b> "
+            f"({int(top_st['num_bikes_available'])} szt.; odchylenie od średniej obszaru {area_avg_bikes:.1f}: "
+            f"<b>{top_st['odchylenie_od_sr']:+.1f}</b>). Udział pustych stacji: <b>{zero_share_pct}%</b>.</div>",
             unsafe_allow_html=True,
         )
 
     c_left, c_right = st.columns([1.2, 1])
 
     with c_left:
-        st.markdown("#### TOP 10 stacji — liczba dostępnych rowerów")
+        st.markdown("#### TOP 10 stacji — wolumen dostępnych rowerów")
         top10 = filtered_stations.sort_values("num_bikes_available", ascending=False).head(10)
         fig_top = px.bar(
             top10.iloc[::-1],
@@ -272,15 +276,19 @@ with tab1:
         st.plotly_chart(fig_top, use_container_width=True)
 
     with c_right:
-        st.markdown("#### Rowery vs wolne miejsca na oddanie (wg obszaru)")
+        st.markdown("#### Rowery vs wolne miejsca na zwrot (wg obszaru)")
         city_df = (
             stations_df.groupby("Miasto", as_index=False)
             .agg(
                 Rowery=("num_bikes_available", "sum"),
                 Wolne_miejsca=("num_docks_available", "sum") if "num_docks_available" in stations_df.columns else ("capacity", lambda s: 0),
+                Stacje=("station_id", "count"),
+                Puste=("num_bikes_available", lambda s: int((s == 0).sum())),
             )
             .sort_values("Rowery", ascending=True)
         )
+        city_df["Udzial_pustych_%"] = np.where(city_df["Stacje"] > 0, (city_df["Puste"] / city_df["Stacje"] * 100).round(1), 0.0)
+
         fig_city = go.Figure()
         fig_city.add_trace(go.Bar(y=city_df["Miasto"], x=city_df["Rowery"], name="Dostępne rowery", orientation="h", marker_color=BLUE_SOFT))
         fig_city.add_trace(go.Bar(y=city_df["Miasto"], x=city_df["Wolne_miejsca"], name="Wolne miejsca", orientation="h", marker_color=SLATE_BAR))
@@ -299,7 +307,7 @@ with tab1:
             size="num_bikes_available",
             color="Status",
             hover_name="name",
-            hover_data={"Miasto": True, "num_bikes_available": True, "capacity": True, "lon": False, "lat": False},
+            hover_data={"Miasto": True, "num_bikes_available": True, "wypelnienie_pct": True, "odchylenie_od_sr": True, "lon": False, "lat": False},
             color_discrete_map=STATUS_MAP,
             labels={"lon": "", "lat": ""},
         )
@@ -312,24 +320,26 @@ with tab1:
         st.plotly_chart(fig_geo, use_container_width=True)
 
     with g_right:
-        st.markdown("#### Podział rowerów wg charakteru okolicy")
+        st.markdown("#### Podział rowerów wg typu strefy")
         zone_df = (
             filtered_stations.groupby("Typ_Lokalizacji", as_index=False)
-            .agg(Rowery=("num_bikes_available", "sum"), Stacje=("station_id", "count"))
+            .agg(Rowery=("num_bikes_available", "sum"), Stacje=("station_id", "count"), Sr_wypelnienie=("wypelnienie_pct", "mean"))
         )
+        zone_df["Sr_wypelnienie"] = zone_df["Sr_wypelnienie"].round(1)
+
         fig_zone = px.pie(zone_df, values="Rowery", names="Typ_Lokalizacji", hole=0.55, color_discrete_sequence=[BLUE_SOFT, TEAL_SOFT, AMBER_SOFT])
         fig_zone.update_traces(textposition="inside", textinfo="percent+label")
-        style_chart(fig_zone, height=250)
+        style_chart(fig_zone, height=245)
         fig_zone.update_layout(showlegend=False, margin={"t": 8, "b": 8, "l": 8, "r": 8})
         st.plotly_chart(fig_zone, use_container_width=True)
 
         st.dataframe(
-            zone_df.rename(columns={"Typ_Lokalizacji": "Typ okolicy", "Rowery": "Dostępne rowery", "Stacje": "Stacje"}),
+            zone_df.rename(columns={"Typ_Lokalizacji": "Strefa", "Rowery": "Rowery", "Stacje": "Stacje", "Sr_wypelnienie": "Śr. wypełn. %"}),
             use_container_width=True,
             hide_index=True,
         )
 
-    st.markdown("#### Lista stacji")
+    st.markdown("#### Tabela stacji i odchyleń od średniej obszaru")
     mode = st.radio(
         "Widok tabeli:",
         ["Najwięcej rowerów", "Puste stacje (0)", "Wyszukiwarka"],
@@ -347,13 +357,14 @@ with tab1:
             tbl = tbl[tbl["name"].str.contains(q, case=False, na=False)]
 
     st.dataframe(
-        tbl[["name", "Miasto", "Typ_Lokalizacji", "num_bikes_available", "capacity", "wypelnienie_pct", "opoznienie_min"]].rename(
+        tbl[["name", "Miasto", "Typ_Lokalizacji", "num_bikes_available", "odchylenie_od_sr", "capacity", "wypelnienie_pct", "opoznienie_min"]].rename(
             columns={
                 "name": "Stacja",
-                "Typ_Lokalizacji": "Okolica",
+                "Typ_Lokalizacji": "Strefa",
                 "num_bikes_available": "Rowery",
+                "odchylenie_od_sr": "Odchyl. od śr.",
                 "capacity": "Pojemność",
-                "wypelnienie_pct": "Wypełnienie (%)",
+                "wypelnienie_pct": "Wypełnienie %",
                 "opoznienie_min": "Opóźnienie (min)",
             }
         ),
@@ -366,7 +377,7 @@ with tab2:
     f1, f2 = st.columns(2)
 
     with f1:
-        st.markdown("#### Rowery poza stacjami (free-floating) wg typu")
+        st.markdown("#### Flota poza stacjami (free-floating) wg typu")
         if len(bikes_df) > 0:
             t_df = bikes_df.groupby("Typ", as_index=False).size().rename(columns={"size": "Liczba"})
             fig_t = px.pie(t_df, values="Liczba", names="Typ", hole=0.55, color_discrete_sequence=[TEAL_SOFT, BLUE_SOFT])
@@ -377,11 +388,11 @@ with tab2:
             st.info("Brak rekordów w feedzie free_bike_status.")
 
     with f2:
-        st.markdown("#### Jakość danych GPS (kontrola anomalii)")
+        st.markdown("#### Jakość danych i status techniczny floty")
         st.caption(
-            f"Surowych rekordów z API: **{meta['raw_bikes_count']}** • "
+            f"Rekordy surowe: **{meta['raw_bikes_count']}** • "
             f"Odfiltrowano poza regionem: **{meta['gps_outliers_removed']}** • "
-            f"Poprawnych w regionie: **{meta['free_floating_count']}**."
+            f"Poprawne GPS: **{meta['free_floating_count']}**."
         )
         if {"is_disabled", "is_reserved"}.issubset(bikes_df.columns):
             disabled_cnt = int(bikes_df["is_disabled"].sum())
@@ -396,7 +407,7 @@ with tab2:
             style_chart(fig_s, height=250)
             st.plotly_chart(fig_s, use_container_width=True)
 
-    st.markdown(f"#### Rozkład zasięgu baterii e-bike'ów (próg: ≥ {min_km} km)")
+    st.markdown(f"#### Rozkład zasięgu baterii e-bike (próg gotowości: ≥ {min_km} km)")
     if len(ebikes) > 0:
         ebikes["Koszyk"] = ebikes["zasieg_km"].apply(assign_battery_bucket)
         b1, b2 = st.columns([1.3, 1])
@@ -406,7 +417,7 @@ with tab2:
                 ebikes,
                 x="zasieg_km",
                 nbins=20,
-                labels={"zasieg_km": "Szacowany zasięg (km)", "count": "Liczba e-bike'ów"},
+                labels={"zasieg_km": "Szacowany zasięg (km)", "count": "Liczba e-bike"},
             )
             fig_h.update_traces(marker_color=BLUE_SOFT)
             fig_h.add_vline(x=min_km, line_dash="dash", line_color=RED_SOFT, annotation_text=f"{min_km} km ({len(ebikes_ready)} szt.)")
@@ -426,10 +437,10 @@ with tab2:
 # --- ZAKŁADKA 3: ASYSTENT AI ---
 with tab3:
     st.markdown("#### Zapytaj asystenta o bieżące dane")
-    st.caption("Odpowiedź generowana na podstawie aktualnych statystyk ze stacji i floty.")
+    st.caption("Odpowiedź na bazie aktualnego stanu stacji, odchyleń i zasięgu baterii.")
 
     top_txt = filtered_stations.sort_values("num_bikes_available", ascending=False).head(15)[
-        ["name", "Miasto", "num_bikes_available", "capacity", "wypelnienie_pct"]
+        ["name", "Miasto", "num_bikes_available", "odchylenie_od_sr", "capacity", "wypelnienie_pct"]
     ].to_string(index=False)
 
     city_txt = (
@@ -439,9 +450,9 @@ with tab3:
     )
 
     presets = [
-        "Gdzie jest teraz najwięcej rowerów na stacjach w wybranym obszarze?",
-        "Jak wygląda sytuacja z bateriami e-bike'ów na dłuższą trasę (≥ 50 km)?",
-        "Które obszary mają najwięcej pustych stacji?",
+        "Gdzie jest teraz najwięcej rowerów i jakie są największe odchylenia od średniej?",
+        "Jak wygląda gotowość baterii e-bike na trasę ≥ 50 km oraz mediana zasięgu?",
+        "Które obszary mają najwyższy udział pustych stacji?",
     ]
     chosen = st.selectbox("Przykładowe pytanie:", presets)
     question = st.text_input("Twoje pytanie:", value=chosen)
@@ -452,10 +463,10 @@ with tab3:
             with st.spinner("Analizuję dane..."):
                 client = genai.Client(api_key=api_key)
                 prompt = (
-                    f"Jesteś analitykiem danych systemu rowerowego MEVO. Odpowiedz krótko i rzeczowo po polsku "
+                    f"Jesteś analitykiem danych systemu rowerowego MEVO. Odpowiedz zwięźle i konkretnie po polsku "
                     f"wyłącznie na podstawie danych z {meta['updated_at']}:\n\n"
                     f"MIASTA:\n{city_txt}\n\nTOP 15 STACJI:\n{top_txt}\n\n"
-                    f"E-BIKE: liczba={len(ebikes)}, średni zasięg={avg_km_str}, >=50 km={int((ebikes['zasieg_km'] >= 50).sum()) if len(ebikes) > 0 else 0}\n\n"
+                    f"E-BIKE: liczba={len(ebikes)}, mediana={median_km_str}, >=50 km={int((ebikes['zasieg_km'] >= 50).sum()) if len(ebikes) > 0 else 0}\n\n"
                     f"PYTANIE: {question}"
                 )
                 resp = None
@@ -478,35 +489,14 @@ with tab3:
                     st.markdown(f"<div class='lead-box'>{resp.text}</div>", unsafe_allow_html=True)
                 else:
                     st.markdown(
-                        f"<div class='lead-box'>{build_fallback_answer(stations_df, filtered_stations, ebikes, avg_km_str, meta['updated_at'], last_err)}</div>",
+                        f"<div class='lead-box'>{build_fallback_answer(stations_df, filtered_stations, ebikes, median_km_str, meta['updated_at'], last_err)}</div>",
                         unsafe_allow_html=True,
                     )
         else:
             st.markdown(
-                f"<div class='lead-box'>{build_fallback_answer(stations_df, filtered_stations, ebikes, avg_km_str, meta['updated_at'])}</div>",
+                f"<div class='lead-box'>{build_fallback_answer(stations_df, filtered_stations, ebikes, median_km_str, meta['updated_at'])}</div>",
                 unsafe_allow_html=True,
             )
-
-# --- KOMPETENCJE BI (MIARY I MODELOWANIE W LOGICE APLIKACJI) ---
-st.divider()
-st.markdown("### Wskaźniki BI i jakość danych")
-st.caption("Udział pustych punktów, dostępność miejsc zwrotu, gotowość baterii oraz świeżość sygnału w wybranym filtrze.")
-
-empty_pct = round((empty_stations / len(filtered_stations) * 100), 1) if len(filtered_stations) > 0 else 0.0
-avg_delay = round(float(filtered_stations["opoznienie_min"].mean()), 1) if "opoznienie_min" in filtered_stations.columns and filtered_stations["opoznienie_min"].notna().any() else 0.0
-
-b_k1, b_k2, b_k3, b_k4 = st.columns(4)
-b_k1.metric("Udział pustych stacji", f"{empty_pct}%", f"{empty_stations} z {len(filtered_stations)} stacji")
-b_k2.metric("Wolne miejsca na oddanie", f"{total_docks:,}".replace(",", " "), "suma wolnych stojaków")
-b_k3.metric(f"E-bike ≥ {min_km} km", f"{len(ebikes_ready):,}".replace(",", " "), "w tym z zasięgiem ≥ 50 km: " + str(int((ebikes["zasieg_km"] >= 50).sum()) if len(ebikes) > 0 else 0))
-b_k4.metric("Śr. opóźnienie odczytu", f"{avg_delay} min", "czas od ostatniego sygnału")
-
-with st.expander("Jak to jest modelowane (podejście BI / analityczne)"):
-    st.markdown(
-        "- **Logika wymiarów i faktów:** rozdzielenie cech lokalizacji (obszar, typ okolicy, pojemność) od zmiennych stanów (dostępne rowery, wolne miejsca, zasięg baterii).\n"
-        "- **Bezpieczne dzielenie i progi:** obsługa zerowej pojemności, kategoryzacja wypełnienia i zasięgu baterii względem zadanego dystansu.\n"
-        "- **Kontrola jakości danych:** filtrowanie błędnych współrzędnych GPS poza regionem oraz monitorowanie opóźnienia raportowania stacji."
-    )
 
 st.divider()
 st.caption("Źródło: Otwarte Dane MEVO (GBFS) • Projekt analityczny.")
